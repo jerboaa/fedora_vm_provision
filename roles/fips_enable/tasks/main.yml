@@ -1,0 +1,14 @@
+---
+# tasks file for fips_enable
+- name: Determine FIPS mode
+  shell: fips-mode-setup --is-enabled
+  register: fips_is_enabled
+  changed_when: no
+  failed_when: false
+- block:
+  - name: Enable FIPS mode
+    shell: fips-mode-setup --enable
+  - name: Reboot machine for FIPS setup
+    ansible.builtin.reboot:
+      test_command: fips-mode-setup --is-enabled
+  when: fips_is_enabled.rc != 0

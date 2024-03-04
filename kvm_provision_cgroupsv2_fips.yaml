@@ -1,0 +1,106 @@
+- name: Deploys Fedora VM based on cloud image
+  hosts: localhost
+  gather_facts: yes
+  become: yes
+  vars:
+    pool_dir: "/disk/vmstorage"
+    vm: F39-test
+    vcpus: 6
+    ram_mb: 6144
+    cleanup: no
+    net: default
+    ssh_pub_key: "/home/sgehwolf/.ssh/id_rsa.pub"
+    user_n: sgehwolf
+    user_c: "Severin Gehwolf"
+    user_p: "<set-userp-via-cli>"
+    root_p: "<set-rootp-via-cli>"
+
+  tasks:
+    - name: Basic VM provision
+      include_role:
+        name: fedora_vm_setup
+      vars:
+        libvirt_pool_dir: "{{ pool_dir }}"
+        vm_name: "{{ vm }}"
+        vm_vcpus: "{{ vcpus }}"
+        vm_ram_mb: "{{ ram_mb }}"
+        vm_net: "{{ net }}"
+        cleanup_tmp: "{{ cleanup }}"
+        ssh_key: "{{ ssh_pub_key }}"
+        vm_root_pass: "{{ root_p }}"
+        base_image_name: Fedora-Cloud-Base-39-1.5.x86_64.qcow2
+        base_image_url: https://download.fedoraproject.org/pub/fedora/linux/releases/39/Cloud/x86_64/images/{{ base_image_name }}
+    - name: Get VMs list
+      community.libvirt.virt:
+        command: list_vms
+      register: running_vms
+      changed_when: no
+    - name: Ensure {{ vm }} is running
+      community.libvirt.virt:
+        command: start
+        name: "{{ vm }}"
+      when: "vm not in running_vms.list_vms"
+    - name: Figure out IP of {{ vm }}
+      include_role:
+        name: find_vm_ip
+      vars:
+        vm_name: "{{ vm }}"
+    - name: Wait for system to become reachable
+      ansible.builtin.wait_for_connection:
+      delegate_to: "{{ ip_addr }}"
+    - name: Ensure python3-libselinux is installed on "{{ ip_addr }}"
+      package:
+        name: python3-libselinux
+        state: present
+        use: "{{ ansible_facts['pkg_mgr'] }}"
+      delegate_to: "{{ ip_addr }}"
+    - name: Cgroup v2 setup on "{{ ip_addr }}"
+      include_role:
+        name: cgroupv2_setup
+        apply:
+          delegate_to: "{{ ip_addr }}"
+    - name: Ensure native-image requirements are installed on "{{ ip_addr }}"
+      package:
+        name:
+          - glibc-devel
+          - zlib-devel
+          - gcc
+          - freetype-devel
+          - libstdc++-static
+        state: present
+        use: "{{ ansible_facts['pkg_mgr'] }}"
+      delegate_to: "{{ ip_addr }}"
+    - name: Upgrade all packages on "{{ ip_addr }}"
+      package:
+        name: "*"
+        state: latest
+        use: "{{ ansible_facts['pkg_mgr'] }}"
+      delegate_to: "{{ ip_addr }}"
+    - name: Add user "{{ user_n }}" to "{{ ip_addr }}"
+      include_role:
+        name: add_user
+        apply:
+          delegate_to: "{{ ip_addr }}"
+      vars:
+        user_name: "{{ user_n }}"
+        user_pass: "{{ user_p }}"
+        user_comment: "{{ user_c }}"
+    - name: Set up SSH pub key for {{ user_n }}
+      ansible.posix.authorized_key:
+        user: "{{ user_n }}"
+        state: present
+        key: "{{ lookup('file', '{{ ssh_pub_key }}') }}"
+      delegate_to: "{{ ip_addr }}"
+    - name: Ensure crypto-policies-scripts is installed on "{{ ip_addr }}"
+      package:
+        name: crypto-policies-scripts
+        state: present
+        use: "{{ ansible_facts['pkg_mgr'] }}"
+    - name: Configure FIPS mode on {{ ip_addr }}
+      include_role:
+        name: fips_enable
+        apply:
+          delegate_to: "{{ ip_addr }}"
+    - name: Your FIPS and cgroups v2 enabled VM {{ vm }} is ready!
+      debug:
+        msg: "You can ssh into the machine with: 'ssh {{ ip_addr }}'"

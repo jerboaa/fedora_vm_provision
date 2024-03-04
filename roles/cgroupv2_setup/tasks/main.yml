@@ -1,0 +1,54 @@
+- name: check for RTT processes
+  command:
+    argv:
+      - ps
+      - ax
+      - -L
+      - -o
+      - 'pid tid cls rtprio comm'
+  register: ps_out
+- name: ensure no RTT processes alive
+  systemd:
+    name: rtkit-daemon
+    enabled: no
+    masked: yes
+  when: ps_out.stdout.find('RR') != -1
+- name: disable SELinux
+  selinux:
+    policy: targeted
+    state: permissive
+- name: Create /etc/systemd/system/user@.service.d directory if it does not exist
+  file:
+    path: /etc/systemd/system/user@.service.d
+    state: directory
+    mode: '0755'
+- name: setup cpu controller delegation service
+  shell: echo -en '[Service]\nDelegate=yes\n' > /etc/systemd/system/user@.service.d/cgroup2_cpu.conf
+  args:
+    creates: /etc/systemd/system/user@.service.d/cgroup2_cpu.conf
+- name: create cpuset controller enable script
+  shell: echo -e '#!/bin/bash\necho +cpuset > /sys/fs/cgroup/cgroup.subtree_control\nexit $?' > /usr/local/cpuset-enable
+  args:
+    creates: /usr/local/cpuset-enable
+- name: chmod cpuset controller enable script
+  file:
+    path: /usr/local/cpuset-enable
+    owner: root
+    group: root
+    mode: '0744'
+- name: add the cpuset controller enable unit
+  shell: echo -e '[Unit]\nDescription="Enable cpuset controller"\n[Service]\nExecStart="/usr/local/cpuset-enable"\n[Install]\nWantedBy=multi-user.target\n' > /usr/lib/systemd/system/cpuset-enable.service
+  args:
+    creates: /usr/lib/systemd/system/cpuset-enable.service
+- name: enable the cpuset-enable.service
+  systemd:
+    name: cpuset-enable
+    enabled: yes
+# Docker is a systemd service and it inherits the default systemd config
+# for DefaultTasksMax. Therefore, all docker spawned containers will run
+# with that limit. The OpenJDK tests assume > 20000 for the unlimited
+# TestPids.java test-case. The equivalent podman config file is
+# /etc/containers/containers.conf copied from /usr/share/containers/containers.conf
+# but it isn't a problem there.
+- name: Update PIDs max upper bound for Docker
+  ini_file: dest=/etc/systemd/system.conf section=Manager option=DefaultTasksMax value=31000 backup=yes

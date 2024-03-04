@@ -1,0 +1,22 @@
+---
+# tasks file for find_vm_ip
+- name: Ensure requirements in place
+  package:
+    name:
+      - libvirt-client
+    state: present
+  become: yes
+- name: Determine IP address of {{ vm_name }}
+  shell: echo $(virsh domifaddr {{ vm_name }} | grep ipv4) | cut -d' ' -f4 | cut -d'/' -f1
+  register: dom_if_addr
+  changed_when: no
+  until: dom_if_addr.stdout != ""
+  retries: 10
+  delay: 2
+- name: Set IP address to variable
+  set_fact:
+    ip_addr: "{{dom_if_addr.stdout}}"
+- name: Print the IP address for {{ vm_name }}
+  debug:
+    msg: VM {{ vm_name }} has local IP {{ ip_addr }}
+  when: ip_addr is defined

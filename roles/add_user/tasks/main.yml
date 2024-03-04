@@ -1,0 +1,22 @@
+---
+# tasks file for add_user
+- name: Ensure group "wheel" exists
+  ansible.builtin.group:
+    name: wheel
+    state: present
+- name: Ensure group "{{ user_name }}" exists with correct gid
+  ansible.builtin.group:
+    name: "{{ user_name }}"
+    state: present
+    gid: 1000
+- name: Add the user '{{ user_name }}' with a specific uid and appended group
+  ansible.builtin.user:
+    name: "{{ user_name }}"
+    comment: "{{ user_comment }}"
+    create_home: true
+    uid: 1000
+    groups: "{{ user_name }},wheel"
+    update_password: always
+    password: "{{ user_pass | password_hash }}"
+- name: Expire password for '{{ user_name }}'
+  shell: "chage -d 0 {{ user_name }}"
