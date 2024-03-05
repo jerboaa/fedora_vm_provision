@@ -1,0 +1,38 @@
+---
+# tasks file for resize_part role
+- name: Read device information for {{ dev_name }}
+  community.general.parted:
+    device: "{{ dev_name }}"
+    unit: MiB
+  register: vda_info
+  changed_when: no
+- name: Print disk size
+  debug:
+    msg: "Disk size is: {{ vda_info.disk.size }} {{ vda_info.disk.unit }}"
+- name: Set partition number
+  set_fact:
+    part_num: "{{ vda_info.partitions | length }}"
+- name: Delete old root partition, {{ part_num }}, with old size
+  shell: sgdisk -d "{{ part_num }}" "{{ dev_name }}"
+- name: Read the number of the last sector in the largest free block device
+  shell: sgdisk -E "{{ dev_name }}"
+  register: end_sect
+  changed_when: no
+- name: Set end sector to variable
+  set_fact:
+    end_sector: "{{end_sect.stdout}}"
+- name: Print disk info
+  debug:
+    msg: "Using end_sector={{ end_sector }} and partition={{ part_num }}"
+- name: Re-create root partition with the new size
+  shell: sgdisk -n "{{ part_num }}:0:{{ end_sector }}" -t "{{ part_num }}:8300" "{{ dev_name }}"
+- name: Run partprobe to publish partition table info
+  shell: partprobe "{{ dev_name }}"
+- name: Resize btrfs of root partition
+  shell: btrfs filesystem resize max /
+- name: Run lsblk
+  shell: lsblk -o name,size,mountpoints
+  register: lsblk_run
+- name: Print disk info from lsblk
+  debug:
+    msg: "{{ lsblk_run.stdout }}"

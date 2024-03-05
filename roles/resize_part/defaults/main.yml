@@ -1,0 +1,3 @@
+---
+# defaults file for resize_part
+dev_name: /dev/vda

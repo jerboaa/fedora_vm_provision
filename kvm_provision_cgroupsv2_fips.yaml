@@ -14,6 +14,8 @@
     user_c: "Severin Gehwolf"
     user_p: "<set-userp-via-cli>"
     root_p: "<set-rootp-via-cli>"
+    disk_size: 40G
+    storage_dev: "/dev/vda"
 
   tasks:
     - name: Basic VM provision
@@ -33,6 +35,7 @@
     - name: Get VMs list
       community.libvirt.virt:
         command: list_vms
+        state: running
       register: running_vms
       changed_when: no
     - name: Ensure {{ vm }} is running
@@ -40,6 +43,8 @@
         command: start
         name: "{{ vm }}"
       when: "vm not in running_vms.list_vms"
+    - name: Resize disk for {{ vm }} to {{ disk_size }}
+      shell: virsh blockresize {{ vm }} --path {{ pool_dir }}/{{ vm }}.qcow2 --size {{ disk_size }}
     - name: Figure out IP of {{ vm }}
       include_role:
         name: find_vm_ip
@@ -48,6 +53,13 @@
     - name: Wait for system to become reachable
       ansible.builtin.wait_for_connection:
       delegate_to: "{{ ip_addr }}"
+    - name: Resize VM internal filesystem
+      include_role:
+        name: resize_part
+        apply:
+          delegate_to: "{{ ip_addr }}"
+      vars:
+        dev_name: "{{ storage_dev }}"
     - name: Ensure python3-libselinux is installed on "{{ ip_addr }}"
       package:
         name: python3-libselinux
